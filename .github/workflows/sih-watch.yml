@@ -1,0 +1,42 @@
+name: SIH watch
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"   # every 20 min (GitHub may delay scheduled runs by 5-15 min)
+  workflow_dispatch: {}       # "Run workflow" button for manual checks
+
+permissions:
+  contents: write             # needed to commit state.json back
+
+concurrency:
+  group: sih-watch
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run watcher
+        env:
+          PS_ID: SIH26166
+          START_AT: "50"
+          STEP: "25"
+          SMTP_HOST: smtp.gmail.com
+          SMTP_PORT: "465"
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python3 sih_watch.py || true   # failures are tracked in state.json, not by failing the job
+
+      - name: Commit state if changed
+        run: |
+          if ! git diff --quiet -- state.json 2>/dev/null || [ -n "$(git ls-files --others -- state.json)" ]; then
+            git config user.name  "sih-watch-bot"
+            git config user.email "sih-watch-bot@users.noreply.github.com"
+            git add state.json
+            git commit -m "state: $(date -u +%FT%TZ)" -q
+            git push -q
+          fi
